@@ -1,0 +1,578 @@
+<!--
+  AI usage: this web interface is generated using claude-opus-5.5.
+  Backend code is not disclosed since it uses an SSH key and connects to the cluster server.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post retrieval → BiGCN pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f6f4ee; --panel:#fffdf8; --ink:#1c1e1b; --muted:#666b63; --faint:#9aa094;
+  --line:#dcd8cc; --line2:#c9c4b5;
+  --acc:#2c7a5f; --acc-soft:#e3f0ea; --int:#a86b12; --int-soft:#faf1e2;
+  --stop:#b23a2a; --stop-soft:#f8e6e2; --gold:#9a7a10; --gold-soft:#f6efd3;
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 var(--sans)}
+button{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
+/* ---------- left rail */
+.rail{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;height:100vh;position:sticky;top:0;overflow-y:auto}
+.rail header{padding:18px 18px 12px;border-bottom:1px solid var(--line)}
+.rail h1{font-size:15px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+.rail .sub{color:var(--muted);font-size:12px}
+.runsum{display:flex;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)}
+.runsum b{display:block;font:600 18px/1.1 var(--sans);color:var(--ink)}
+.list{flex:1 0 auto}
+.item{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:11px 18px;cursor:pointer}
+.item:hover{background:#f3f0e7}
+.item[aria-current="true"]{background:var(--acc-soft);box-shadow:inset 3px 0 0 var(--acc)}
+.item .t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
+.item .s{font:600 12px/1 var(--sans);color:var(--acc);margin-bottom:5px}
+.item .m{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}
+.chip{font:500 11px/1 var(--sans);padding:3px 6px;border-radius:3px;background:#eeebe2;color:var(--muted);white-space:nowrap}
+.chip.ok{background:var(--acc-soft);color:var(--acc)} .chip.stop{background:var(--stop-soft);color:var(--stop)}
+.chip.gold{background:var(--gold-soft);color:var(--gold)}
+.rail footer{padding:10px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--faint)}
+.rail footer label{cursor:pointer;text-decoration:underline}
+/* ---------- main */
+main{padding:22px 28px 60px;min-width:0}
+.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}
+.input-text{font-size:17px;line-height:1.45;max-width:880px;margin:0;text-wrap:pretty}
+.input-meta{color:var(--muted);font-size:12px;margin-top:6px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);white-space:nowrap}
+.legend span::before{content:"";display:inline-block;width:14px;height:10px;margin-right:5px;vertical-align:-1px;border-radius:2px}
+.legend .l0::before{border:2.5px solid var(--ink);background:var(--panel)}
+.legend .l1::before{border:1.5px solid var(--line2);background:#faf8f2}
+.legend .l2::before{border:1.5px dashed var(--int);background:var(--int-soft)}
+.legend .l3::before{border:1.5px solid var(--line2);background:#ece9e0}
+/* ---------- pipeline graph */
+.graph-wrap{margin:20px -28px 0;padding:0 28px 6px;overflow-x:auto}
+.graph{display:grid;min-width:900px}
+.lane{display:grid;column-gap:16px;align-items:start;padding:16px 14px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfaf5;position:relative}
+.lane .lt{position:absolute;top:8px;left:14px;font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.lane .lt b{color:var(--acc)}
+.node{overflow-wrap:anywhere}
+.col{display:flex;flex-direction:column;align-items:stretch;gap:10px;position:relative;align-self:start}
+.node{position:relative;border:1.5px solid var(--ink);background:var(--panel);border-radius:6px;padding:9px 10px 8px;cursor:pointer;text-align:left;min-height:74px}
+.node:hover{box-shadow:0 2px 0 var(--line2)}
+.node:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.node .n{font:500 10px/1 var(--mono);color:var(--faint);letter-spacing:.04em}
+.node .h{font-weight:600;font-size:12.5px;margin:4px 0 3px;line-height:1.2}
+.node .v{font:12px/1.3 var(--mono);color:var(--muted)}
+.node[aria-pressed="true"]{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft)}
+.node.key{border-width:2.5px;border-color:var(--ink);min-height:104px;padding:11px 11px 10px;box-shadow:0 3px 0 var(--line2)}
+.node.key .n{color:var(--acc);font-size:11px;font-weight:600}
+.node.key .h{font-size:15px;margin:5px 0 4px}
+.node.key .v{font-size:12.5px;color:var(--ink)}
+.node.key[aria-pressed="true"]{box-shadow:0 0 0 4px var(--acc-soft)}
+.node.minor{border-color:var(--line2);background:#faf8f2;min-height:60px;margin-top:22px;padding:7px 8px}
+.node.minor .h{font-size:11.5px;font-weight:500;color:var(--muted)}
+.node.minor .v{font-size:11px;color:var(--faint)}
+.node.minor .o{font-size:10px}
+.node.int{border-style:dashed;border-color:var(--int);background:var(--int-soft);min-height:0;padding:7px 9px}
+.node.int .h{font-weight:500;font-size:12px;color:#6d4a10}
+.node.int .v{color:#8a6a35}
+.node.int[aria-pressed="true"]{box-shadow:0 0 0 3px #f1ddb6}
+.node.off{border-color:var(--line2);background:#ece9e0;color:var(--faint)} .node.off .h{color:var(--faint)}
+.node.off.int{border-color:#d8cdb8;background:#f1ece2}
+.node.stopped{border-color:var(--stop);background:var(--stop-soft)}
+.node .flag{position:absolute;top:-9px;right:8px;font:600 10px/1 var(--sans);padding:3px 5px;border-radius:3px;background:var(--stop);color:#fff}
+.node .flag.g{background:var(--gold)}
+.col .stem{position:absolute;left:18px;top:60px;bottom:18px;border-left:1.5px dashed #d6b780;z-index:0}
+.col .node.int{margin-left:12px;z-index:1}
+.arrow{position:absolute;top:34px;right:-16px;width:16px;height:14px;pointer-events:none}
+.arrow i{position:absolute;left:3px;right:6px;top:6px;border-top:1.5px solid var(--ink)}
+.arrow i::after{content:"";position:absolute;right:-6px;top:-5px;border:4.5px solid transparent;border-left:6px solid var(--ink)}
+.arrow.off i{border-color:var(--line2)} .arrow.off i::after{border-left-color:var(--line2)}
+.mini{margin-top:6px;background:#fbfaf5;border:1px solid var(--line);border-radius:4px}
+.mini svg{display:block;width:100%;height:110px}
+.node .o{font:500 11px/1.2 var(--mono);color:var(--acc);margin-top:5px}
+/* ---------- detail */
+.detail{margin-top:26px;border-top:1px solid var(--line);padding-top:20px}
+.detail h2{font-size:18px;margin:0 0 4px;letter-spacing:-.01em}
+.detail .what{color:var(--muted);max-width:820px;margin:0 0 16px;text-wrap:pretty}
+.detail .what.int{color:#7a5719}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:13px;margin:0 0 14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-size:12px;word-break:break-word}
+pre.box{font:12px/1.5 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;white-space:pre-wrap;word-break:break-word;margin:0 0 14px;max-height:340px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+th{font:500 11px/1 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);background:#f3f0e8}
+td{padding:7px 10px;border-bottom:1px solid #ece8de;vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--mono);font-size:12px;white-space:nowrap;text-align:right}
+td.snip{color:#3c403a;max-width:560px}
+tr.hl td{background:var(--gold-soft)} tr.pick td{background:var(--acc-soft)} tr.dim td{color:var(--faint)}
+.bar{height:7px;background:#ebe7dc;border-radius:4px;overflow:hidden;min-width:90px}
+.bar i{display:block;height:100%;background:var(--acc)}
+.qtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.qtabs button{border:1px solid var(--line2);background:var(--panel);border-radius:5px;padding:6px 10px;cursor:pointer;font:12px var(--mono)}
+.qtabs button[aria-selected="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+.warn{border:1px solid #e6c9c1;background:var(--stop-soft);color:#7d2a1e;border-radius:6px;padding:10px 12px;font-size:13px;margin:0 0 14px;max-width:820px}
+.two{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,1fr);gap:20px;align-items:start}
+.tree-wrap{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:auto;max-height:640px}
+.tree-wrap svg{display:block;margin:0 auto}
+.tnode{cursor:pointer}
+.tnode circle{stroke:var(--ink);stroke-width:1.2;fill:var(--panel)}
+.tnode.root circle{fill:var(--acc);stroke:var(--acc)}
+.tnode.sel circle{stroke:var(--gold);stroke-width:3}
+.tnode text{font:10px var(--mono);fill:var(--muted)}
+.tedge{stroke:#9aa094;stroke-width:1.2;fill:none} .tedge.orphan{stroke-dasharray:3 3;stroke:#c9a46a}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card h3{font-size:13px;margin:0 0 6px}
+.words{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.words span{font:11px var(--mono);background:var(--acc-soft);color:var(--acc);padding:2px 5px;border-radius:3px}
+.fm{display:grid;gap:2px;font:11px var(--mono)}
+.fm .r{display:grid;grid-template-columns:44px 1fr 46px;gap:8px;align-items:center}
+.fm .cells{height:12px;background:#eeebe2;position:relative;border-radius:2px;overflow:hidden}
+.fm .cells i{position:absolute;top:0;bottom:0;width:2px;background:var(--acc)}
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.arch .card{border-style:dashed;border-color:var(--int);background:var(--int-soft)}
+.probs{display:grid;gap:8px;max-width:520px}
+.probs .r{display:grid;grid-template-columns:96px 1fr 56px;gap:10px;align-items:center;font-size:13px}
+.probs .bar{height:12px} .probs .r.top b{color:var(--acc)}
+.empty{color:var(--muted);font-style:italic}
+.livepanel{padding:14px 18px 16px;border-bottom:1px solid var(--line);background:#f8f6ef}
+.livepanel h2{font:600 11px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 9px}
+.wstate{display:flex;font-size:12px;color:var(--muted);align-items:center;gap:7px;margin-bottom:10px}
+.gpuline{font-size:12px;color:var(--muted);margin:-4px 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.gpuline select{font:12px var(--sans);padding:3px 4px;border:1px solid var(--line2);border-radius:4px;background:#fff}
+.gpuline b.ok{color:var(--acc)} .gpuline b.no{color:var(--stop)}
+.wwarn{display:none;border:1px solid #e6c48a;background:#fbf1dc;color:#6d4a10;border-radius:6px;padding:9px 10px;font-size:12px;line-height:1.45;margin:0 0 12px}
+.wwarn.on{display:block} .wwarn b{color:#5a3b08}
+.livepanel .btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.livepanel textarea{width:100%;min-height:78px;resize:vertical;font:13.5px/1.4 var(--sans);padding:8px 10px;border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--ink)}
+.livepanel textarea:focus{outline:2px solid var(--acc-soft);border-color:var(--acc)}
+.livepanel textarea:disabled{background:#f1eee6}
+.livepanel label{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;margin:7px 0 9px}
+.livepanel .note{margin:7px 0 0;font-size:11.5px}
+.livepanel code{font:11px var(--mono);background:#ece9e0;padding:1px 4px;border-radius:3px;word-break:break-all}
+.btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer;min-height:38px;font-size:13px}
+.btn.ghost{background:var(--panel);color:var(--ink);border-color:var(--line2);font-weight:500}
+.btn.danger{background:var(--panel);color:var(--stop);border-color:#e3b8ae;font-weight:500}
+.btn.full{width:100%}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);display:inline-block}
+.dot.ready{background:var(--acc)} .dot.busy{background:var(--int)} .dot.wait{background:var(--gold)} .dot.dead{background:var(--stop)}
+.node.running{border-color:var(--int);box-shadow:0 0 0 3px var(--int-soft)}
+@media (prefers-reduced-motion:no-preference){.node.running{animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{box-shadow:0 0 0 6px var(--int-soft)}}}
+.live-empty{padding:40px 0;color:var(--muted)}
+@media (max-width:900px){.app{grid-template-columns:1fr}.rail{position:static;max-height:none}.two,.arch{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:no-preference){.node{transition:box-shadow .12s,border-color .12s}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <header>
+      <h1>User input → Mastodon thread → BiGCN</h1>
+      <div class="sub" id="runmeta"></div>
+      <div class="runsum" id="runsum"></div>
+    </header>
+    <section class="livepanel" aria-label="Live run on the HPC">
+      <h2>Live run on the HPC</h2>
+      <div class="wstate"><span class="dot" id="wdot"></span><span id="wtext">checking…</span></div>
+      <div class="gpuline"><span>GPU partition</span><select id="wpart"><option value="a100">a100 (1 h)</option><option value="a100-test">a100-test (20 min)</option></select><span id="wgpu">checking…</span></div>
+      <div class="wwarn" id="wwarn" role="alert"></div>
+      <div class="btns"><button class="btn ghost" id="wstart" type="button">Set up HPC</button>
+        <button class="btn danger" id="wstop" type="button">Close job &amp; connection</button></div>
+      <form id="liveform">
+        <textarea id="livetext" placeholder="Describe a Mastodon post you want to check, e.g. “Releases curl 8.22.0, his 276th release.”" required></textarea>
+        <label><input type="checkbox" id="livebefore"> only search posts older than 30 days</label>
+        <button class="btn full" id="liverun" type="submit">Run pipeline</button>
+      </form>
+      <p class="note" id="livenote"></p>
+    </section>
+    <nav class="list" id="list" aria-label="Demo inputs"></nav>
+    <footer>Keys: ↑ ↓ switch input · ← → switch step · <label>load a trace.json<input type="file" id="file" accept=".json" hidden></label></footer>
+  </aside>
+  <main>
+    <div class="top">
+      <div>
+        <p class="input-text" id="intext"></p>
+        <div class="input-meta" id="inmeta"></div>
+      </div>
+      <div class="legend"><span class="l0">key step</span><span class="l1">supporting step</span><span class="l2">inside a model (described)</span><span class="l3">not reached</span></div>
+    </div>
+    <div class="graph-wrap"><div class="graph" id="graph"></div></div>
+    <section class="detail" id="detail" aria-live="polite"></section>
+  </main>
+</div>
+<script>
+const TRACE = {"meta": {"created": "2026-10-18 18:56", "run": "9b_672335", "query_model": {"base": "Qwen/Qwen3.5-9B", "adapter": "outputs/9b_cv/fold2_stage1/checkpoint-3162", "label": "9B CV fold 2, stage 1, epoch 3 (checkpoint-3162): 75.8% found / 58.3% rank 1 on its test set", "lora": "r 16, alpha 32, all linear layers", "decoding": "greedy + beam search (10 beams), up to 5 distinct queries", "max_new_tokens": 32, "instruction": "Write a short search query (a few keywords, no quotes, no explanation) that would find the following Mastodon post with a search engine.\n\nPost:\n"}, "search": {"endpoint": "https://mastodon.social/api/v2/search?type=statuses&limit=30", "top_n": 30, "before": "2026-09-18", "behaviour": "every query word must match (AND), results newest first"}, "rules": {"min_replies": 2, "embed_model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2", "max_fetch_attempts": 3}, "bigcn": {"checkpoint": "BiGCN_data_iter0_fold4.pt", "dataset_labels": "Twitter15", "vocab_size": 5000, "architecture": "top-down GCN + bottom-up GCN (5000 -> 64 -> 64 each, root features concatenated), mean-pooled, linear 256 -> 4, softmax", "warning": "Placeholder checkpoint trained on a random smoke-test graph set: probabilities are near chance and must not be read as a real rumour verdict."}, "model_load_seconds": 9.0}, "items": []};
+const LIVE = /*__LIVE__*/false;
+const TRUTH = () => D.items.some(i => i.post_url);
+let D = TRACE, cur = 0, step = "input", qtab = 1, selNode = 0;
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = x => (x == null ? "–" : (100 * x).toFixed(1) + "%");
+const short = (s, n = 90) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const host = u => { try { return new URL(u).host; } catch { return u; } };
+
+/* step order; "stopKey" = the stopped_at value that ends the pipeline at this step */
+const KEY = new Set(["input","queries","search","fetch","tree","result"]);
+const ORDER = ["input","queries","search","pick","fetch","tree","model","result"];
+const STOPIDX = {generate: 1, search: 2, rule1: 3, fetch: 4};
+
+function stepsFor(it) {
+  const qs = it.queries || [], nres = qs.reduce((a, q) => a + q.n_results, 0);
+  const ch = it.chosen, tr = it.tree, bg = it.bigcn || {};
+  const M = D.meta;
+  return [
+    {id:"input", n:"1", h:"User input", v:`“${short(it.text, 40)}”`, out:`${it.text.split(/\s+/).length} words`},
+    {id:"queries", n:"2", h:"Write queries", v: qs.length ? `“${short(qs[0].query, 34)}”${qs.length > 1 ? ` +${qs.length - 1}` : ""}` : "none", out:`${qs.length} queries`, kids:[
+      {id:"i_prompt", h:"Chat template + tokenise", v:`${it.prompt_tokens} tokens`},
+      {id:"i_lm", h:"Qwen3.5-9B + LoRA", v:"forward pass"},
+      {id:"i_beam", h:"Greedy + beam search", v:`${(it.beams||[]).length} beams`}]},
+    {id:"search", n:"3", h:"Mastodon search", v: it.post_url ? (it.input_post_in_pool ? `original found by ${it.input_post_found_by.length}/${qs.length} queries` : `original not found`) : `${qs.filter(q=>q.n_results).length}/${qs.length} queries hit`, out:`${nres} results`, kids:[
+      {id:"i_before", h:"before: date filter", v: (it.before !== undefined ? it.before : M.search.before) || "off"},
+      {id:"i_engine", h:"Server-side matching", v:"AND · newest first"}]},
+    {id:"pick", n:"3a", h:"Pick best result", v: it.chosen ? `similarity ${it.chosen.score.toFixed(2)}` : it.candidates?.length ? `${it.candidates.length} candidates` : "none qualified",
+      out: it.candidates?.length ? "best post" : ""},
+    {id:"fetch", n:"4", h:"Fetch thread", v: ch ? `${ch.acct || host(ch.url)} · ${ch.replies_fetched} replies${ch.is_input_post ? " · original ✓" : ""}` : `${(it.fetch_attempts||[]).length} attempts`,
+      out: ch ? "thread JSON" : "", kids:[{id:"i_api", h:"Home-instance API", v:"status · context"}]},
+    {id:"tree", n:"5", h:"Propagation tree", v: tr ? `${tr.n_nodes} vertices · ${tr.edges.length} edges` : "–", out: "", mini: true},
+    {id:"model", n:"5a", h:"Graph prediction model: BiGCN", v: bg.probs ? "reads the tree" : "–", out: bg.probs ? "probabilities" : ""},
+    {id:"result", n:"6", h:"Final result", v: bg.pred_label ? `${bg.pred_label} · ${pct(bg.probs?.[bg.pred_label])} (placeholder model)` : "–", out:""},
+  ];
+}
+
+function reached(it, id) {
+  const base = id.startsWith("i_") ? parentOf(it, id) : id;
+  if (it.stopped_at == null) return true;
+  return ORDER.indexOf(base) <= STOPIDX[it.stopped_at];
+}
+function parentOf(it, kid) { return stepsFor(it).find(s => (s.kids || []).some(k => k.id === kid)).id; }
+
+/* ---------------- rail */
+function renderRail() {
+  const M = D.meta, its = D.items;
+  if (!M) { $("#runmeta").textContent = "GPU worker not started"; $("#runsum").innerHTML = ""; }
+  else {
+  $("#runmeta").innerHTML = `${esc(M.query_model.base)} + LoRA · run ${esc(M.run)} · ${esc(M.created)}`;
+  const full = its.filter(i => i.stopped_at == null && (i.progress == null || i.progress >= 7) && !i.error).length;
+  const orig = its.filter(i => i.chosen?.is_input_post).length;
+  const inpool = its.filter(i => i.input_post_in_pool).length;
+  $("#runsum").innerHTML = `<div><b>${its.length}</b>inputs</div>${TRUTH() ? `<div><b>${inpool}</b>original found</div><div><b>${orig}</b>original chosen</div>` : ""}<div><b>${full}</b>reached BiGCN</div>`;
+  }
+  $("#list").innerHTML = its.map((it, i) =>
+    `<button class="item" data-i="${i}" aria-current="${i === cur}"><div class="s">Search ${i + 1}</div><div class="t">${esc(it.text)}</div></button>`).join("");
+  $("#list").querySelectorAll(".item").forEach(b => b.onclick = () => select(+b.dataset.i));
+}
+
+/* ---------------- graph */
+function renderGraph() {
+  const it = D.items[cur], S = stepsFor(it);
+  const running = it.stopped_at == null && it.progress != null && it.progress < 7;
+  const stopI = it.stopped_at != null ? (STOPIDX[it.stopped_at] ?? 0) : running ? Math.max(it.progress, 0) : 99;
+  const cols = S.map((s, i) => {
+    const off = i > stopI, stopped = it.stopped_at != null && i === stopI, now = running && i === stopI + 1;
+    const flag = stopped ? `<span class="flag">stopped</span>` :
+      (s.id === "search" && it.input_post_in_pool) || (s.id === "fetch" && it.chosen?.is_input_post) ? `<span class="flag g">original</span>` : "";
+    const kids = (s.kids || []).map(k => `<button class="node int ${off ? "off" : ""}" data-s="${k.id}" aria-pressed="${step === k.id}">
+        <div class="h">${esc(k.h)}</div><div class="v">${off ? "–" : esc(k.v)}</div></button>`).join("");
+    const arrow = i < S.length - 1 ? `<div class="arrow ${i >= stopI ? "off" : ""}"><i></i></div>` : "";
+    return `<div class="col">${s.kids ? `<div class="stem"></div>` : ""}
+      <button class="node ${KEY.has(s.id) ? "key" : "minor"} ${off && !now ? "off" : ""} ${now ? "running" : ""} ${stopped ? "stopped" : ""}" data-s="${s.id}" aria-pressed="${step === s.id}">
+        ${flag}<div class="n">${KEY.has(s.id) ? "STEP " + s.n : s.n}</div><div class="h">${esc(s.h)}</div><div class="v">${now ? (it.queued ? "waiting for the GPU…" : "running…") : off ? (running ? "waiting" : "not reached") : esc(s.v)}</div>${s.mini && !off && it.tree ? `<div class="mini">${graphSvg(it.tree, "tree", true)}</div>` : ""}${s.out && i < stopI && i < S.length - 1 ? `<div class="o">→ ${esc(s.out)}</div>` : ""}</button>
+      ${kids}${arrow}</div>`;
+  });
+  const tmpl = S.map(s => s.id === "tree" ? "minmax(140px,1.9fr)" : KEY.has(s.id) ? "minmax(104px,1.35fr)" : "minmax(72px,.8fr)").join(" ");
+  $("#graph").innerHTML = `<div class="lane" style="grid-template-columns:${tmpl}">${cols.join("")}</div>`;
+  $("#graph").querySelectorAll(".node").forEach(b => b.onclick = () => { step = b.dataset.s; autoFollow = false; render(); });
+}
+
+/* ---------------- detail panels */
+function head(title, what, int) { return `<h2>${esc(title)}</h2><p class="what ${int ? "int" : ""}">${what}</p>`; }
+function notReached(it) {
+  if (it.error) return `<div class="warn">${esc(it.error)}</div>`;
+  if (it.stopped_at == null && it.progress != null && it.progress < 7) return `<p class="empty">Running on the HPC… this step fills in when it finishes.</p>`;
+  return `<div class="warn">This input never reached this step: ${esc(it.stop_reason)}.</div>`; }
+
+function resultsTable(rows, opts = {}) {
+  if (!rows.length) return `<p class="empty">No posts.</p>`;
+  return `<table><thead><tr><th>Rank</th><th>Author</th><th>Replies</th>${opts.extra ? `<th>${opts.extra}</th>` : ""}<th>Text</th></tr></thead><tbody>` +
+    rows.map(r => `<tr class="${r.is_input_post ? "hl" : ""} ${opts.dim && opts.dim(r) ? "dim" : ""} ${opts.pick && opts.pick(r) ? "pick" : ""}">
+      <td class="num">${r.rank}</td><td>${esc(r.acct || host(r.url))}</td><td class="num">${r.replies ?? "–"}</td>
+      ${opts.extra ? `<td>${opts.cell(r)}</td>` : ""}
+      <td class="snip">${esc(short(r.text, 170))}${r.is_input_post ? ` <span class="chip gold">original</span>` : ""}</td></tr>`).join("") + `</tbody></table>`;
+}
+
+const P = {
+  input(it) {
+    return head("User input", "What the user typed: a short description of a Mastodon post they want to check. The pipeline only ever sees this text.") +
+      `<dl class="kv"><dt>Length</dt><dd>${it.text.split(/\s+/).length} words</dd></dl>
+       <pre class="box">${esc(it.text)}</pre>` +
+      (it.original_text ? `<h3 style="font-size:13px;margin:16px 0 6px">The post the user meant (shown for the demo; the pipeline does not see it)</h3>
+       <pre class="box">${esc(it.original_text)}</pre>
+       <dl class="kv"><dt>Original URL</dt><dd>${esc(it.post_url)}</dd><dt>Original replies</dt><dd>${it.original_replies ?? "unknown"}</dd>
+       <dt>Data split</dt><dd>held-out test post: the query model never saw it in training</dd></dl>` : "");
+  },
+  queries(it) {
+    const M = D.meta.query_model;
+    return head("Write queries", "The GRPO-trained query model reads the post and writes short search queries. Query 1 is the greedy answer (what the model was evaluated on); the rest are the next-best distinct beams.") +
+      `<dl class="kv"><dt>Model</dt><dd>${esc(M.base)} + LoRA (${esc(M.lora)})</dd><dt>Weights</dt><dd>${esc(M.adapter)}</dd>
+       <dt>Training result</dt><dd>${esc(M.label)}</dd><dt>Decoding</dt><dd>${esc(M.decoding)}</dd></dl>` +
+      `<table><thead><tr><th>#</th><th>Query</th><th>How</th><th>Beam score</th><th>Kept</th></tr></thead><tbody>` +
+      (it.queries || []).filter(q => q.how === "greedy").map(q => `<tr class="pick"><td class="num">1</td><td><code>${esc(q.query)}</code></td><td>greedy</td><td class="num">–</td><td>yes</td></tr>`).join("") +
+      (it.beams || []).map((b, i) => `<tr class="${b.kept ? "" : "dim"}"><td class="num">b${i + 1}</td><td><code>${esc(b.query)}</code></td><td>beam</td><td class="num">${b.score ?? "–"}</td><td>${b.kept ? "yes" : esc(b.why_dropped)}</td></tr>`).join("") +
+      `</tbody></table><p class="note">Beam score = average log-probability per token (higher = the model is more confident).</p>`;
+  },
+  search(it) {
+    const qs = it.queries || []; if (!qs.length) return notReached(it);
+    const q = qs.find(x => x.i === qtab) || qs[0];
+    return head("Mastodon search", `Each query is sent to mastodon.social's search API (top ${D.meta.search.top_n} posts). ${TRUTH() ? "The highlighted row is the original post, when a query found it." : ""}`) +
+      `<div class="qtabs" role="tablist">${qs.map(x => `<button role="tab" data-q="${x.i}" aria-selected="${x.i === q.i}">q${x.i} · ${x.n_results}${x.input_post_rank ? " ★" : ""}</button>`).join("")}</div>
+       <dl class="kv"><dt>Sent</dt><dd>${esc(q.sent)}</dd><dt>Results</dt><dd>${q.n_results}${q.error ? " · error: " + esc(q.error) : ""}</dd>
+       ${TRUTH() ? `<dt>Original's rank</dt><dd>${q.input_post_rank ?? "not in results"}</dd>` : ""}</dl>` + resultsTable(q.results);
+  },
+  pick(it) {
+    if (it.n_rule1 == null) return head("Pick best result", "") + notReached(it);
+    const c = it.candidates || [], ch = it.chosen;
+    const summary = `The queries returned <b>${it.n_pool}</b> different posts. ${it.n_rule1 ? `<b>${it.n_rule1}</b> of them ${it.n_rule1 === 1 ? "has" : "have"} a reply thread (at least ${D.meta.rules.min_replies} replies), which BiGCN needs; of those, the post closest in meaning to the input is picked.` : `None of them has a reply thread (at least ${D.meta.rules.min_replies} replies), which BiGCN needs, so nothing can be picked.`}`;
+    if (!c.length) return head("Pick best result", summary) + notReached(it);
+    const best = c.find(x => ch && x.url === ch.url) || c[0];
+    return head("Pick best result", summary) +
+      `<div class="card" style="max-width:820px"><h3>Picked: ${esc(best.acct || host(best.url))} · ${best.replies} replies · similarity ${best.score.toFixed(3)}
+        ${best.is_input_post ? ` <span class="chip gold">the original post</span>` : it.post_url ? ` <span class="chip">not the original</span>` : ""}</h3>
+        <p style="margin:6px 0 0">${esc(best.text)}</p><p class="note">${esc(best.url)}</p></div>` +
+      (it.post_url && it.input_post_in_pool && !best.is_input_post ? `<p class="note">The original was among the search results but ${(it.input_post_replies_search ?? 0) < D.meta.rules.min_replies ? "has too few replies" : "was not the closest match"}.</p>` : "");
+  },
+  model(it) {
+    if (!it.bigcn) return notReached(it);
+    return head("Graph prediction model: BiGCN", "BiGCN reads the propagation tree in both directions (how the post spread to its replies, and how the replies respond back to it) and outputs a probability for each class.") +
+      `<div class="warn">${esc(D.meta.bigcn.warning)}</div>`;
+  },
+  fetch(it) {
+    const a = it.fetch_attempts || []; if (!a.length) return notReached(it);
+    const ch = it.chosen;
+    return head("Fetch thread", "The chosen post and all its replies are downloaded from the post's home server (mastodon.social's reply count can be out of date, so a candidate that turns out to have too few replies is skipped).") +
+      `<table><thead><tr><th>Try</th><th>Post</th><th>Replies fetched</th><th>Result</th></tr></thead><tbody>` +
+      a.map((x, i) => `<tr class="${ch && x.url === ch.url ? "pick" : ""}"><td class="num">${i + 1}</td><td>${esc(x.url)}</td><td class="num">${x.fetched_replies ?? "–"}</td>
+        <td>${x.error ? esc(x.error) : ch && x.url === ch.url ? "used" : "too few replies"}</td></tr>`).join("") + `</tbody></table>` +
+      (ch ? `<dl class="kv" style="margin-top:14px"><dt>Chosen</dt><dd>${esc(ch.url)}</dd>${TRUTH() ? `<dt>Is the original</dt><dd>${ch.is_input_post ? "yes" : it.post_url ? "no, a different post" : "unknown"}</dd>` : ""}
+        <dt>Similarity</dt><dd>${ch.score}</dd><dt>Found by</dt><dd>queries ${ch.found_by.join(", ")}</dd></dl>` : notReached(it));
+  },
+  tree(it) {
+    const t = it.tree; if (!t) return notReached(it);
+    const n = t.nodes[selNode] || t.nodes[0];
+    return head("Propagation tree", "The thread as a graph: every post is a vertex (v0 = the post itself, green, at the top), every reply is a directed edge from the post it answers to the reply. This is exactly the graph BiGCN reads. Click a vertex to read it.") +
+      `<dl class="kv"><dt>Vertices</dt><dd>${t.n_nodes} (v0 + ${t.n_nodes - 1} replies)</dd><dt>Edges</dt><dd>${t.edges.length}${t.skipped_edges ? ` (+${t.skipped_edges} replies whose parent was not fetched, dashed to v0)` : ""}</dd>
+       <dt>Longest reply chain</dt><dd>${t.max_depth} edges</dd><dt>Direct replies to v0</dt><dd>${t.edges.filter(e => e[0] === 0).length}</dd></dl>
+       <div class="two"><div class="tree-wrap">${graphSvg(t, treeLayout, false)}</div>
+       <div class="card"><h3>v${n.i}${n.i === 0 ? " · the post" : ""} · ${esc(n.handle || "")}</h3>
+        <div style="font-size:12px;color:var(--muted)">${esc(n.created || "")}${n.i ? ` · edge v${n.parent ?? 0} → v${n.i}` : ""}</div>
+        <p style="margin:8px 0 0;white-space:pre-wrap">${esc(n.text)}</p>
+        <h3 style="margin-top:14px">Edge list</h3><div class="note" style="font-family:var(--mono);line-height:1.7">${t.edges.map(e => `v${e[0]}→v${e[1]}`).join("  ")}</div></div></div>`;
+  },
+  result(it) {
+    const bg = it.bigcn; if (!bg || !bg.probs) return bg?.error ? `<div class="warn">${esc(bg.error)}</div>` : notReached(it);
+    const ent = Object.entries(bg.probs), top = Math.max(...ent.map(e => e[1]));
+    return head("Prediction", "Class probabilities for the fetched thread.") + `<div class="warn">${esc(D.meta.bigcn.warning)}</div>
+      <div class="probs">${ent.map(([k, v]) => `<div class="r ${v === top ? "top" : ""}"><b>${esc(k)}</b><div class="bar"><i style="width:${v * 100}%"></i></div><span class="num">${pct(v)}</span></div>`).join("")}</div>
+      <dl class="kv" style="margin-top:16px"><dt>Thread classified</dt><dd>${esc(it.chosen.url)}</dd>${TRUTH() ? `<dt>Is the original post</dt><dd>${it.chosen.is_input_post ? "yes" : "no"}</dd>` : ""}</dl>`;
+  },
+  /* -------- internal steps: described, with the values we do have */
+  i_prompt(it) { return head("Chat template + tokenise", "Inside the query model. The instruction and post are wrapped in Qwen's chat template (thinking turned off) and split into tokens. This is the exact string the model receives:", 1) +
+      `<dl class="kv"><dt>Prompt tokens</dt><dd>${it.prompt_tokens}</dd></dl><pre class="box">${esc(it.prompt)}</pre>`; },
+  i_lm() { const M = D.meta.query_model; return head("Qwen3.5-9B + LoRA forward pass", "Inside the query model. The 9-billion-parameter base model is frozen; small low-rank adapter matrices (LoRA), trained with GRPO, are added to every linear layer and shift its output towards queries that find the post being described. Activations are not recorded.", 1) +
+      `<dl class="kv"><dt>Base</dt><dd>${esc(M.base)}</dd><dt>Adapter</dt><dd>${esc(M.lora)} · ${esc(M.adapter)}</dd><dt>Trained with</dt><dd>GRPO: 16 tries per post, reward = the described post in the top 10 (higher rank = more), similar post 0, miss −1</dd></dl>`; },
+  i_beam(it) { return head("Greedy + beam search", `Inside the decoding loop. Greedy takes the single most likely token each step; beam search keeps the ${(it.beams||[]).length} most likely partial queries at every step. Duplicates are removed.`, 1) + P.queries(it).split("</p>").slice(1).join("</p>"); },
+  i_before(it) { const s = D.meta.search, bf = it.before !== undefined ? it.before : s.before; return head("before: date filter", "Added to every query sent. Mastodon returns newest posts first, so very recent posts that happen to match push older targets out of the top results; limiting the search to older posts gave +2 to +17 points in our tests.", 1) +
+      `<dl class="kv"><dt>Filter</dt><dd>${bf ? "before:" + esc(bf) : "off (searches all dates)"}</dd></dl>`; },
+  i_engine() { const s = D.meta.search; return head("Server-side matching", "Happens on mastodon.social, not visible to us. Mastodon's search keeps only posts that contain every query word, then sorts them newest first. A query that is too general matches many newer posts; one word too many and nothing matches.", 1) +
+      `<dl class="kv"><dt>Endpoint</dt><dd>${esc(s.endpoint)}</dd><dt>Behaviour</dt><dd>${esc(s.behaviour)}</dd></dl>`; },
+  i_api(it) { return head("Home-instance API", "Three requests to the server the post lives on: the post itself (/api/v1/statuses/:id), its reply thread (/context) and who favourited it (/favourited_by).", 1) +
+      (it.chosen ? `<dl class="kv"><dt>Server</dt><dd>${esc(host(it.chosen.url))}</dd><dt>Replies fetched</dt><dd>${it.chosen.replies_fetched}</dd></dl>` : ""); },
+};
+
+function hash(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
+
+let treeLayout = "tree";
+function graphSvg(t, layout, mini) {
+  const kids = {}; t.nodes.forEach(n => { if (n.i) (kids[n.parent ?? 0] ||= []).push(n.i); });
+  const pos = {}; let leaf = 0;
+  (function lay(i, d) { const ch = kids[i] || []; if (!ch.length) pos[i] = {x: leaf++, d}; else { ch.forEach(c => lay(c, d + 1)); pos[i] = {x: (pos[ch[0]].x + pos[ch[ch.length - 1]].x) / 2, d}; } })(0, 0);
+  const maxd = Math.max(1, ...Object.values(pos).map(p => p.d));
+  let X, Y, w, h;
+  if (layout === "radial") {              // root in the centre, each reply level one ring further out
+    const R = Math.min(90, 260 / maxd), size = mini ? 120 : 2 * (maxd * R) + 90;
+    w = h = size; const c = size / 2;
+    const ang = i => 2 * Math.PI * (pos[i].x + .5) / Math.max(1, leaf) - Math.PI / 2;
+    const rad = i => pos[i].d * (mini ? (c - 8) / maxd : R);
+    X = i => i === 0 ? c : c + rad(i) * Math.cos(ang(i)); Y = i => i === 0 ? c : c + rad(i) * Math.sin(ang(i));
+  } else {                                // root on top, replies below their parent
+    const W = mini ? 12 : 46, H = mini ? 18 : 64, pad = mini ? 8 : 30;
+    w = Math.max(mini ? 60 : 320, leaf * W + pad * 2); h = maxd * H + pad * 2;
+    X = i => pad + pos[i].x * W + W / 2; Y = i => pad + pos[i].d * H;
+  }
+  let s = `<svg ${mini ? "" : layout === "radial" ? `style="width:100%;max-width:${w}px;height:auto;margin:0 auto"` : `width="${w}" height="${h}"`} viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="propagation graph">`;
+  t.nodes.forEach(n => { if (!n.i) return; const p = n.parent ?? 0;
+    s += `<line class="tedge ${n.parent == null ? "orphan" : ""}" x1="${X(p)}" y1="${Y(p)}" x2="${X(n.i)}" y2="${Y(n.i)}" ${mini ? 'stroke-width="1.4" stroke="#6b6f68"' : 'marker-end="url(#ah)"'}/>`; });
+  if (!mini) s = s.replace('role="img" aria-label="propagation graph">', `role="img" aria-label="propagation graph"><defs><marker id="ah" viewBox="0 0 10 10" refX="17" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9aa094"/></marker></defs>`);
+  t.nodes.forEach(n => {
+    const r = mini ? (n.i ? 3.2 : 5.5) : (n.i ? 8 : 12);
+    s += mini ? `<circle cx="${X(n.i)}" cy="${Y(n.i)}" r="${r}" fill="${n.i ? "#fffdf8" : "#2c7a5f"}" stroke="${n.i ? "#1c1e1b" : "#2c7a5f"}" stroke-width="1"/>`
+      : `<g class="tnode ${n.i ? "" : "root"} ${n.i === selNode ? "sel" : ""}" data-n="${n.i}" tabindex="0"><title>${esc((n.handle || "") + ": " + short(n.text, 120))}</title>
+      <circle cx="${X(n.i)}" cy="${Y(n.i)}" r="${r}"/><text x="${X(n.i)}" y="${Y(n.i) + r + 12}" text-anchor="middle">v${n.i}</text></g>`;
+  });
+  return s + "</svg>";
+}
+
+/* ---------------- render */
+function render() {
+  const it = D.items[cur];
+  $("#intext").textContent = it.text;
+  $("#inmeta").innerHTML = [it.post_url && `post the user meant: ${esc(it.post_url)}`,
+    it.timing && `time: ${Object.entries(it.timing).map(([k, v]) => `${k} ${v}s`).join(" · ")}`].filter(Boolean).join(" &nbsp;·&nbsp; ");
+  renderGraph();
+  const off = !reached(it, step);
+  $("#detail").innerHTML = off && !step.startsWith("i_") ? head(stepsFor(it).find(s => s.id === step)?.h || "", "") + notReached(it) : P[step](it);
+  $("#detail").querySelectorAll("[data-q]").forEach(b => b.onclick = () => { qtab = +b.dataset.q; render(); });
+  $("#detail").querySelectorAll("[data-layout]").forEach(b => b.onclick = () => { treeLayout = b.dataset.layout; render(); });
+  $("#detail").querySelectorAll(".tnode").forEach(g => { g.onclick = () => { selNode = +g.dataset.n; render(); }; g.onkeydown = e => { if (e.key === "Enter") g.onclick(); }; });
+}
+/* ---------------- live mode (served by live_server.py) */
+const STUB_META = {query_model: {base: "Qwen/Qwen3.5-9B", adapter: "", label: "", lora: "", decoding: "", instruction: ""},
+  search: {endpoint: "", top_n: 30, before: null, behaviour: ""}, rules: {min_replies: 2, embed_model: "", max_fetch_attempts: 3},
+  bigcn: {checkpoint: "", dataset_labels: "", vocab_size: 5000, warning: "Placeholder BiGCN checkpoint: probabilities are near chance."},
+  run: "live", created: ""};
+const API = location.protocol === "file:" ? "http://localhost:8765" : "";
+function setupLive() {
+  D = D || {meta: null, items: []};
+  if (!D.items.length) emptyLive();
+  let ws = {}, settingUp = 0, closing = false, lastClose = null;
+  const poll = async () => {
+    try { ws = await (await fetch(API + "/api/status")).json(); } catch { ws = {state: "offline"}; }
+    if (ws.meta && !D.meta) { D.meta = ws.meta; renderRail(); }
+    if (ws.state === "offline" && settingUp && Date.now() - settingUp < 20000) ws = {state: "starting local server"};
+    if (ws.state !== "offline") closing = closing && ws.state !== "stopped"; else closing = false;
+    if (closing) ws = {...ws, state: "closing"};
+    const st = ws.state || "?", cls = st === "offline" ? "off" : st === "ready" ? (ws.busy ? "busy" : "ready") : /waiting|loading|connecting|stopping|starting|closing/.test(st) ? "wait" : "dead";
+    $("#wdot").className = "dot " + (cls === "off" ? "dead" : cls);
+    const label = {off: "not set up", dead: st === "stopped" ? "not connected" : st, wait: st === "connecting" ? "connecting to the HPC…" : st,
+                   ready: "connected · ready", busy: "connected · running an input"}[cls];
+    $("#wtext").textContent = label +
+      (ws.meta?.node ? ` · ${ws.meta.node}` : "") + (ws.queued ? ` · ${ws.queued} queued` : "") + (ws.log?.length && cls === "dead" ? ` · ${ws.log[ws.log.length - 1]}` : "");
+    const left = ws.leftover || [];
+    $("#wstart").disabled = !(cls === "dead" || cls === "off"); $("#wstop").disabled = cls === "off" || st === "closing" || (cls === "dead" && !left.length);
+    $("#liverun").disabled = $("#livetext").disabled = !(cls === "ready" || cls === "busy" || (cls === "wait" && !/closing|stopping|starting local/.test(st)));
+    $("#wstart").textContent = cls === "wait" ? "Setting up…" : "Set up HPC";
+    const cr = ws.close_report;
+    if (cls === "ready" || cls === "busy" || closing) settingUp = 0;   // launch succeeded / user closed
+    const blocked = cls === "off" && settingUp && Date.now() - settingUp >= 20000;
+    if (cls !== "off") lastClose = cr || lastClose;
+    const lc = cls === "off" ? lastClose : null;
+    $("#livenote").innerHTML = lc && !blocked ? (lc.left.length ? `<b style="color:var(--stop)">Closed, but job ${esc(lc.left.join(", "))} could not be confirmed cancelled.</b> Run <code>scancel -n live_demo</code> on the cluster.` :
+        `Closed at ${esc(lc.time)}: ${lc.cancelled.length ? `job ${esc(lc.cancelled.join(", "))} cancelled, ` : ""}no demo job left on the HPC, connection and local server stopped.`) :
+      blocked ? `The launcher did not start. If the browser asked about opening an <b>hpcdemo</b> link, choose <b>Open/Allow</b> (tick “always”) and press Set up again. Otherwise run <code>bash ~/tools/hpc_work/bigcn/demo/install_demo_launcher.sh</code> once, or start it by hand: <code>bash ~/tools/hpc_work/bigcn/demo/start_live_demo.sh</code>` :
+      cls === "off" ? `Press <b>Set up HPC</b>: it starts the local server, reserves a GPU on the cluster and loads the query model (about 1 min). If nothing happens, run <code>bash ~/tools/hpc_work/bigcn/demo/install_demo_launcher.sh</code> once.` :
+      cls === "dead" && cr && !cr.left.length ? `Closed at ${esc(cr.time)}: ${cr.cancelled.length ? `job ${esc(cr.cancelled.join(", "))} cancelled, ` : ""}no demo job left on the HPC. Press <b>Set up HPC</b> to start again.` :
+      cls === "dead" ? "Press <b>Set up HPC</b>: it reserves a GPU on the cluster and loads the query model (about 30 s)." :
+      cls === "wait" ? "Setting up… you can type now; the input runs as soon as the GPU is ready." :
+      `GPU job ${esc(ws.meta?.run?.replace("live ", "") || "")} on ${esc(ws.meta?.node || "?")}, time limit ${esc(ws.time_limit || "")}. Close it when you are done.`;
+    // ---- GPU availability + queue warnings
+    const part = ws.partition && cls !== "off" && cls !== "dead" ? ws.partition : $("#wpart").value;
+    if (cls !== "off" && cls !== "dead") $("#wpart").value = ws.partition;
+    $("#wpart").disabled = !(cls === "off" || cls === "dead");
+    const c = (ws.cluster || {})[part];
+    $("#wgpu").innerHTML = cls === "off" ? "" : !c ? "checking…" : c.error ? `<b class="no">${esc(c.error)}</b>` :
+      `<b class="${c.free ? "ok" : "no"}">${c.free} of ${c.total} free</b>${c.pending ? ` · ${c.pending} job${c.pending > 1 ? "s" : ""} queued` : ""}`;
+    const REASON = {Resources: "every GPU node is in use", Priority: "other jobs are ahead in the queue",
+      QOSMaxJobsPerUserLimit: "you already have the maximum number of jobs on this partition",
+      QOSMaxWallDurationPerJobLimit: "the time limit is too long for this partition",
+      ReqNodeNotAvail: "the nodes are reserved or down", PartitionTimeLimit: "the time limit is too long for this partition",
+      AssocGrpGRES: "your GPU quota is used up", Dependency: "waiting for another job"};
+    const fmtWait = s => s == null ? "" : s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+    let warn = "";
+    if (cls === "off" && lastClose && lastClose.left.length) warn = `<b>⚠ Job ${esc(lastClose.left.join(", "))} may still be on the HPC.</b>`;
+    if (cls === "dead" && left.length) {
+      warn = `<b>⚠ Demo job${left.length > 1 ? "s" : ""} ${esc(left.join(", "))} still on the HPC</b> (not cancelled, holding a GPU). Press <b>Close job &amp; connection</b> to cancel ${left.length > 1 ? "them" : "it"}.`;
+    } else if (cls === "dead" && cr && cr.left.length) {
+      warn = `<b>⚠ Could not confirm the cancellation</b> of job ${esc(cr.left.join(", "))}. Press Close again, or run <code>scancel -n live_demo</code> on the cluster.`;
+    } else if (st === "waiting for a GPU") {
+      const q = ws.queue || {}, why = REASON[q.reason] || q.reason || "the partition is busy";
+      const eta = q.est_start ? new Date(q.est_start) : null;
+      warn = `<b>⚠ The ${esc(part)} GPU is occupied.</b> Job ${esc(ws.job_id || "")} is queued: ${esc(why)}.
+        Waiting ${fmtWait(ws.waiting_s)}${eta && !isNaN(eta) ? ` · expected start ${eta.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} (${Math.max(0, Math.round((eta - Date.now()) / 60000))} min)` : " · no start estimate yet"}.
+        ${part === "a100" ? "Close and try <b>a100-test</b> (20 min) if it is free," : "Close and try <b>a100</b> if it is free,"} or keep waiting.`;
+    } else if ((cls === "dead" || cls === "off") && c && !c.error && part === "a100-test" && (c.mine || []).length) {
+      warn = `<b>⚠ a100-test is occupied by your own job</b> ${esc(c.mine.join(", "))}. a100-test allows one job per user, so Set up will wait until it ends; use <b>a100</b> instead.`;
+    } else if ((cls === "dead" || cls === "off") && c && !c.error && c.free === 0) {
+      warn = `<b>⚠ No free GPU on ${esc(part)} right now</b> (${c.total} in use${c.pending ? `, ${c.pending} job${c.pending > 1 ? "s" : ""} already waiting` : ""}). Set up will wait in the queue${part === "a100" ? "; a100-test may be quicker" : ""}.`;
+    }
+    $("#wwarn").innerHTML = warn; $("#wwarn").classList.toggle("on", !!warn);
+  };
+  poll(); setInterval(poll, 2000);
+  $("#wstart").onclick = async () => {
+    settingUp = Date.now(); lastClose = null;
+    if (ws.state === "offline") {           // no local server: ask the OS launcher (hpcdemo://) to start it
+      const a = document.createElement("a"); a.href = "hpcdemo://setup?partition=" + $("#wpart").value; document.body.appendChild(a); a.click(); a.remove();
+    } else await fetch(API + "/api/start", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({partition: $("#wpart").value})});
+    poll();
+  };
+  $("#wstop").onclick = async () => {
+    if (!confirm("Close the GPU job, the connection to the HPC and the local server?")) return;
+    closing = true; settingUp = 0;
+    const onlyLeft = ws.state === "stopped" && (ws.leftover || []).length;
+    try { const r = await (await fetch(API + (onlyLeft ? "/api/cancel_leftover" : "/api/shutdown"), {method: "POST"})).json(); if (r.close_report) lastClose = r.close_report; } catch {}
+    if (onlyLeft) setTimeout(() => { closing = false; }, 8000);
+    poll();
+  };
+  $("#liveform").onsubmit = async e => {
+    e.preventDefault();
+    const text = $("#livetext").value.trim(); if (!text) return;
+    const r = await (await fetch(API + "/api/run", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text, before: $("#livebefore").checked})})).json();
+    if (r.error) { alert(r.error); return; }
+    D.meta = D.meta || STUB_META;
+    const item = {_id: r.id, text, progress: -1, queued: true};
+    D.items.push(item); step = "input"; select(D.items.length - 1);
+    const es = new EventSource(API + "/api/events?id=" + r.id);
+    es.onmessage = m => {
+      const ev = JSON.parse(m.data), idx = D.items.findIndex(x => x._id === ev.id);
+      if (idx < 0) return;
+      if (ev.type === "error") { D.items[idx] = {...D.items[idx], queued: false, error: ev.error, stopped_at: "generate", stop_reason: ev.error}; es.close(); }
+      else {
+        const was = D.items[idx].progress ?? -1;
+        D.items[idx] = {...ev.item, _id: ev.id, queued: false};
+        if (ev.type === "done") { es.close(); if (D.items[idx].progress === undefined) D.items[idx].progress = 7; }
+        // follow the newest finished step while the user has not clicked elsewhere
+        if (idx === cur && autoFollow) { const p = Math.min(D.items[idx].progress ?? 0, 7); step = ORDER[ev.type === "done" && D.items[idx].stopped_at == null ? 7 : Math.max(0, p)]; }
+      }
+      if (idx === cur) render();
+      renderRail();
+    };
+    $("#livetext").value = "";
+  };
+}
+let autoFollow = true;
+function emptyLive() {
+  $("#intext").textContent = "Type a description of a Mastodon post above and run it.";
+  $("#inmeta").textContent = "Each step appears in the pipeline graph as soon as the HPC finishes it.";
+  $("#graph").innerHTML = `<div class="live-empty">No inputs yet.</div>`;
+  $("#detail").innerHTML = "";
+  renderRail();
+}
+function select(i) { autoFollow = true; cur = i; qtab = 1; selNode = 0; renderRail(); render(); }
+function allIds() { return stepsFor(D.items[cur]).flatMap(s => [s.id, ...(s.kids || []).map(k => k.id)]); }
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input, textarea") || !D.items.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); select((cur + (e.key === "ArrowDown" ? 1 : -1) + D.items.length) % D.items.length); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const ids = ORDER, i = ids.indexOf(step.startsWith("i_") ? parentOf(D.items[cur], step) : step);
+    step = ids[Math.max(0, Math.min(ids.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)))]; render(); }
+});
+$("#file").onchange = async e => { const f = e.target.files[0]; if (!f) return; D = JSON.parse(await f.text()); cur = 0; step = "input"; select(0); };
+if (D && D.items.length) select(0); setupLive();
+if (false) $("#intext").textContent = "No trace embedded: use “load another trace.json” in the left panel.";
+</script>
+</body>
+</html>
